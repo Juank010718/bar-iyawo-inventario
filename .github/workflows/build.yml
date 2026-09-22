@@ -1,0 +1,270 @@
+name: Construir APK Bar Iyawo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Crear proyecto Android
+        run: |
+          mkdir -p app/src/main/java/com/bariyawo/inventario
+          mkdir -p app/src/main/assets
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "BarIyawoInventario"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.bariyawo.inventario'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.bariyawo.inventario'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="Bar Iyawo - Inventario"
+                  android:usesCleartextTraffic="true">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:screenOrientation="portrait"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          mkdir -p app/src/main/res/values
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#8B5CF6</item>
+                  <item name="android:navigationBarColor">#111111</item>
+                  <item name="android:statusBarColor">#111111</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/bariyawo/inventario/MainActivity.java <<'EOF'
+          package com.bariyawo.inventario;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+          import android.webkit.WebSettings;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  WebView web = new WebView(this);
+                  WebSettings settings = web.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+
+                  web.loadUrl("file:///android_asset/index.html");
+                  setContentView(web);
+              }
+          }
+          EOF
+
+          cat > app/src/main/assets/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="es">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Bar Iyawo</title>
+          <style>
+          *{box-sizing:border-box}
+          body{margin:0;font-family:Arial;background:#111;color:#fff}
+          header{padding:22px;background:linear-gradient(135deg,#24113d,#111)}
+          h1{margin:0;font-size:28px}
+          .sub{color:#bbb;margin-top:5px}
+          .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:15px}
+          .card{background:#211f25;border-radius:15px;padding:16px}
+          .number{font-size:25px;font-weight:bold;color:#c084fc}
+          .box{margin:0 15px 15px;background:#211f25;border-radius:15px;padding:15px}
+          input,button{width:100%;padding:13px;border:0;border-radius:10px;margin-top:8px;font-size:16px}
+          input{background:#333;color:white}
+          button{background:#8b5cf6;color:white;font-weight:bold}
+          .product{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #444;padding:13px 0}
+          .small{color:#aaa;font-size:13px}
+          </style>
+          </head>
+          <body>
+
+          <header>
+          <h1>🍸 Bar Iyawo</h1>
+          <div class="sub">Inventario y control del negocio</div>
+          </header>
+
+          <div class="cards">
+          <div class="card"><div class="small">Productos</div><div class="number" id="total">0</div></div>
+          <div class="card"><div class="small">Unidades</div><div class="number" id="units">0</div></div>
+          </div>
+
+          <div class="box">
+          <h2>Agregar producto</h2>
+          <input id="name" placeholder="Nombre del producto">
+          <input id="stock" type="number" placeholder="Cantidad">
+          <input id="price" type="number" placeholder="Precio CUP">
+          <button onclick="add()">+ Agregar al inventario</button>
+          </div>
+
+          <div class="box">
+          <h2>Inventario</h2>
+          <input id="search" placeholder="🔎 Buscar producto" oninput="render()">
+          <div id="list"></div>
+          </div>
+
+          <script>
+          let products=JSON.parse(localStorage.getItem("barIyawo")||"[]");
+
+          function save(){
+            localStorage.setItem("barIyawo",JSON.stringify(products));
+            render();
+          }
+
+          function add(){
+            let name=document.getElementById("name").value.trim();
+            let stock=parseInt(document.getElementById("stock").value)||0;
+            let price=parseInt(document.getElementById("price").value)||0;
+
+            if(!name)return alert("Escribe el nombre del producto");
+
+            products.push({name,stock,price});
+            document.getElementById("name").value="";
+            document.getElementById("stock").value="";
+            document.getElementById("price").value="";
+            save();
+          }
+
+          function sell(i){
+            if(products[i].stock>0){
+              products[i].stock--;
+              save();
+            }else{
+              alert("No hay existencia de este producto");
+            }
+          }
+
+          function removeProduct(i){
+            if(confirm("¿Eliminar este producto?")){
+              products.splice(i,1);
+              save();
+            }
+          }
+
+          function render(){
+            let q=document.getElementById("search").value.toLowerCase();
+            let list=document.getElementById("list");
+            let html="";
+
+            products.forEach((p,i)=>{
+              if(!p.name.toLowerCase().includes(q))return;
+
+              html+=`
+              <div class="product">
+                <div>
+                  <b>${p.name}</b>
+                  <div class="small">Stock: ${p.stock} | ${p.price} CUP</div>
+                </div>
+                <div>
+                  <button onclick="sell(${i})">Vender</button>
+                  <button onclick="removeProduct(${i})">Eliminar</button>
+                </div>
+              </div>`;
+            });
+
+            list.innerHTML=html||'<div class="small">No hay productos todavía.</div>';
+
+            document.getElementById("total").innerText=products.length;
+            document.getElementById("units").innerText=
+              products.reduce((a,p)=>a+p.stock,0);
+          }
+
+          render();
+          </script>
+
+          </body>
+          </html>
+          EOF
+
+      - name: Instalar Gradle
+        run: |
+          gradle wrapper --gradle-version 8.7
+
+      - name: Construir APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bar-Iyawo-Inventario
+          path: app/build/outputs/apk/debug/app-debug.apk
